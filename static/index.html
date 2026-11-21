@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EventCut Studio — Bezstratne przycinanie filmów</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app-shell" id="appShell">
+    <!-- Top Studio Header -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand">
+          <div class="brand-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M6 3v18M18 3v18M2 7h4M2 12h4M2 17h4M18 7h4M18 12h4M18 17h4"/>
+              <path d="M10 9l5 3-5 3V9z" fill="currentColor" stroke="none"/>
+            </svg>
+          </div>
+          <div class="brand-text">
+            <span class="brand-name">EventCut <span class="accent-text">Studio</span></span>
+            <span class="brand-badge" id="engineStatusBadge">
+              <span class="dot"></span> <span id="engineStatusText" data-i18n="engine_ok">100% Bezstratny • FFmpeg</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="topbar-center">
+        <button class="btn btn-primary-soft" id="btnPickFiles" data-i18n-title="btn_add_files_title" title="Wybierz wiele filmów z dysku (bez kopiowania)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          <span data-i18n="btn_add_files">Dodaj filmy</span>
+        </button>
+        <button class="btn btn-ghost" id="btnPickFolder" data-i18n-title="btn_add_folder_title" title="Wczytaj wszystkie filmy z wybranego folderu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+          <span data-i18n="btn_add_folder">Dodaj folder</span>
+        </button>
+        <div class="divider-v"></div>
+        <button class="btn btn-ghost btn-sm" id="btnShortcuts" data-i18n-title="btn_shortcuts_title" title="Skróty klawiszowe">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
+          <span data-i18n="btn_shortcuts">Skróty</span>
+        </button>
+      </div>
+
+      <div class="topbar-right">
+        <div class="lang-switch" id="langSwitch" role="group" aria-label="Language">
+          <button type="button" class="lang-btn" data-lang="pl">PL</button>
+          <button type="button" class="lang-btn" data-lang="en">EN</button>
+        </div>
+        <div class="queue-summary-pill" id="headerSummaryPill">
+          <span id="headerClipCount">0 filmów</span>
+        </div>
+        <button class="btn btn-export-top" id="btnTopExport" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+          <span data-i18n="btn_export">Eksportuj</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main 3-Column Studio Workspace -->
+    <main class="workspace">
+      <!-- LEFT: Clip Queue Sidebar -->
+      <aside class="panel queue-panel">
+        <div class="panel-header">
+          <div class="panel-title-group">
+            <h2 data-i18n="queue_title">Kolejka eventów</h2>
+            <span class="count-badge" id="queueCountBadge">0</span>
+          </div>
+          <div class="panel-actions">
+            <button class="icon-btn" id="btnToggleSelectAll" data-i18n-title="queue_select_all_title" title="Zaznacz / Odznacz wszystkie">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+            </button>
+            <button class="icon-btn danger" id="btnClearQueue" data-i18n-title="queue_clear_title" title="Wyczyść całą listę">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2m2 0v14a2 2 0 01-2 2H8a2 2 0 01-2-2V6"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="queue-list" id="queueList">
+          <div class="queue-empty-hint" id="queueEmptyHint">
+            <p data-i18n="queue_empty_title">Brak wczytanych filmów.</p>
+            <span data-i18n="queue_empty_desc">Dodaj pliki przyciskiem powyżej lub przeciągnij je tutaj.</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- CENTER: Preview Player & Pro Timeline -->
+      <section class="center-stage">
+        <!-- Empty Welcome Hero (shown when 0 clips) -->
+        <div class="empty-stage" id="emptyStage">
+          <div class="drop-hero" id="dropHero">
+            <div class="hero-glow"></div>
+            <div class="hero-icon">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="6" y="10" width="36" height="28" rx="5"/>
+                <path d="M20 18l10 6-10 6V18z" fill="currentColor" stroke="none"/>
+                <path d="M14 4v6M34 4v6M14 38v6M34 38v6" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <h1 data-i18n="hero_title">Skracaj dziesiątki klipów bez utraty jakości</h1>
+            <p class="hero-subtitle" data-i18n-html="hero_subtitle_html">
+              Wybierz np. 15 nagrań z eventami po 30 sekund i przytnij je hurtowo do 5 sekund —
+              <strong>bit w bit w oryginalnej jakości</strong> (Stream Copy) w zaledwie kilka sekund.
+            </p>
+            <div class="hero-cta-row">
+              <button class="btn btn-primary btn-lg" id="btnHeroPickFiles">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M12 18v-6M9 15h6"/></svg>
+                <span data-i18n="hero_btn_files">Wybierz filmy z dysku</span>
+              </button>
+              <button class="btn btn-secondary btn-lg" id="btnHeroPickFolder">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+                <span data-i18n="hero_btn_folder">Wybierz cały folder</span>
+              </button>
+            </div>
+            <p class="hero-drop-note" data-i18n="hero_drop_note">lub przeciągnij i upuść pliki MP4 / MKV / MOV bezpośrednio w to okno</p>
+
+            <div class="hero-features">
+              <div class="feature-chip">
+                <span class="chip-dot green"></span> <span data-i18n="hero_feat_lossless">0% straty jakości (Stream Copy)</span>
+              </div>
+              <div class="feature-chip">
+                <span class="chip-dot indigo"></span> <span data-i18n="hero_feat_timeline">Przesuwane okno wycinka na osi czasu</span>
+              </div>
+              <div class="feature-chip">
+                <span class="chip-dot amber"></span> <span data-i18n="hero_feat_batch">Masowe przycinanie 1 kliknięciem</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Active Editor Stage (shown when >= 1 clip) -->
+        <div class="editor-stage hidden" id="editorStage">
+          <!-- Active Clip Header Bar -->
+          <div class="clip-header-bar">
+            <div class="clip-header-info">
+              <span class="clip-index-pill" id="activeClipIndex">1 / 1</span>
+              <h3 class="clip-title" id="activeClipTitle">—</h3>
+              <div class="clip-meta-tags" id="activeClipMetaTags"></div>
+            </div>
+            <div class="clip-nav-controls">
+              <button class="btn btn-ghost btn-sm" id="btnPrevClip" data-i18n-title="btn_prev_title" title="Poprzedni film (Strzałka w górę)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+                <span data-i18n="btn_prev">Poprzedni</span>
+              </button>
+              <button class="btn btn-ghost btn-sm" id="btnNextClip" data-i18n-title="btn_next_title" title="Następny film (Strzałka w dół)">
+                <span data-i18n="btn_next">Następny</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Video Viewport -->
+          <div class="player-viewport" id="playerViewport">
+            <video id="videoPlayer" preload="metadata" playsinline></video>
+            <div class="player-overlay-msg hidden" id="playerCodecNotice">
+              <div class="notice-card">
+                <strong data-i18n="codec_notice_title">Podgląd niedostępny dla tego kodeka w przeglądarce</strong>
+                <p data-i18n="codec_notice_desc">Bez obaw — FFmpeg i tak przytnie ten plik 100% bezstratnie! Możesz ustawić czas wycinka na osi czasu poniżej.</p>
+              </div>
+            </div>
+            <div class="player-time-hud">
+              <span class="hud-current" id="hudCurrentTime">00:00.00</span>
+              <span class="hud-sep">/</span>
+              <span class="hud-total" id="hudTotalTime">00:00.00</span>
+            </div>
+            <div class="player-loop-badge" id="playerLoopBadge">
+              <span class="dot"></span> <span data-i18n="loop_badge">Podgląd wycinka (pętla)</span>
+            </div>
+          </div>
+
+          <!-- Transport Controls -->
+          <div class="transport-bar">
+            <div class="transport-left">
+              <button class="icon-btn play-btn" id="btnPlayPause" data-i18n-title="play_pause_title" title="Odtwórz / Pauza (Spacja)">
+                <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                <svg id="iconPause" class="hidden" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+              </button>
+              <button class="icon-btn" id="btnStepBack" data-i18n-title="step_back_title" title="Cofnij o 0.5s (←)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/></svg>
+              </button>
+              <button class="icon-btn" id="btnStepFwd" data-i18n-title="step_fwd_title" title="Naprzód o 0.5s (→)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 17l5-5-5-5M6 17l5-5-5-5"/></svg>
+              </button>
+              <button class="btn btn-pill active" id="btnLoopToggle" data-i18n-title="btn_loop_title" title="Zapętlaj tylko zaznaczony fragment (L)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+                <span data-i18n="btn_loop">Pętla</span>
+              </button>
+            </div>
+
+            <div class="transport-center">
+              <button class="btn btn-chip-action" id="btnSetIn" data-i18n-title="btn_set_in_title" title="Ustaw początek wycinka w miejscu kursora (I)">
+                <span class="key-hint">I</span> <span data-i18n="btn_set_in">Początek tutaj</span>
+              </button>
+              <button class="btn btn-chip-action" id="btnSetOut" data-i18n-title="btn_set_out_title" title="Ustaw koniec wycinka w miejscu kursora (O)">
+                <span class="key-hint">O</span> <span data-i18n="btn_set_out">Koniec tutaj</span>
+              </button>
+            </div>
+
+            <div class="transport-right">
+              <select class="speed-select" id="playbackSpeed" data-i18n-title="speed_title" title="Prędkość podglądu">
+                <option value="0.5">0.5x</option>
+                <option value="1" selected>1.0x</option>
+                <option value="1.5">1.5x</option>
+                <option value="2">2.0x</option>
+              </select>
+              <button class="icon-btn" id="btnMute" data-i18n-title="mute_title" title="Wycisz / Włącz dźwięk (M)">
+                <svg id="iconVolOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"/></svg>
+                <svg id="iconVolOff" class="hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M23 9l-6 6M17 9l6 6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Interactive Pro Timeline -->
+          <div class="timeline-card">
+            <div class="timeline-top-labels">
+              <div class="tl-stat">
+                <span class="tl-label" data-i18n="tl_start">START (IN)</span>
+                <input type="number" step="0.1" min="0" class="tl-num-input" id="inputStart" />
+                <span class="tl-unit">s</span>
+              </div>
+              <div class="tl-stat highlight">
+                <span class="tl-label" data-i18n="tl_duration">DŁUGOŚĆ</span>
+                <input type="number" step="0.5" min="0.5" class="tl-num-input" id="inputDuration" />
+                <span class="tl-unit">s</span>
+              </div>
+              <div class="tl-stat">
+                <span class="tl-label" data-i18n="tl_end">KONIEC (OUT)</span>
+                <input type="number" step="0.1" min="0.1" class="tl-num-input" id="inputEnd" />
+                <span class="tl-unit">s</span>
+              </div>
+              <div class="tl-kf-legend" id="kfLegend" data-i18n-title="tl_keyframes_title" title="Złote znaczniki na dole osi to klatki kluczowe (I-frames) dla bezstratnego cięcia">
+                <span class="kf-dot"></span>
+                <span id="kfCountLabel" data-i18n="tl_keyframes">Klatki kluczowe</span>
+              </div>
+            </div>
+
+            <div class="timeline-track-wrap" id="timelineTrack">
+              <div class="timeline-filmstrip" id="timelineFilmstrip"></div>
+              <div class="timeline-dim-left" id="tlDimLeft"></div>
+              <div class="timeline-dim-right" id="tlDimRight"></div>
+
+              <!-- Selection Window (draggable to pan the whole 5s slice!) -->
+              <div class="timeline-selection" id="tlSelection" data-i18n-title="tl_selection_title" title="Przeciągnij środek, aby przesunąć cały wycinek w czasie">
+                <div class="tl-selection-grip">
+                  <span id="tlSelectionLabel">5.0s</span>
+                </div>
+                <div class="tl-handle left" id="tlHandleLeft" data-i18n-title="tl_handle_left_title" title="Przeciągnij, aby zmienić początek (IN)">
+                  <div class="handle-bar"></div>
+                </div>
+                <div class="tl-handle right" id="tlHandleRight" data-i18n-title="tl_handle_right_title" title="Przeciągnij, aby zmienić koniec (OUT)">
+                  <div class="handle-bar"></div>
+                </div>
+              </div>
+
+              <!-- Keyframe ticks layer -->
+              <div class="timeline-keyframes" id="tlKeyframes"></div>
+
+              <!-- Playhead -->
+              <div class="timeline-playhead" id="tlPlayhead">
+                <div class="playhead-cap"></div>
+              </div>
+            </div>
+
+            <!-- Quick Per-Clip Presets -->
+            <div class="timeline-quick-bar">
+              <div class="quick-group">
+                <span class="quick-label" data-i18n="quick_duration">Długość:</span>
+                <button class="chip-btn" data-clip-dur="3">3s</button>
+                <button class="chip-btn" data-clip-dur="5">5s</button>
+                <button class="chip-btn" data-clip-dur="7">7s</button>
+                <button class="chip-btn" data-clip-dur="10">10s</button>
+                <button class="chip-btn" data-clip-dur="15">15s</button>
+              </div>
+              <div class="quick-group">
+                <span class="quick-label" data-i18n="quick_position">Pozycja wycinka:</span>
+                <button class="chip-btn" data-clip-anchor="start" data-i18n="anchor_start">Początek</button>
+                <button class="chip-btn" data-clip-anchor="middle" data-i18n="anchor_middle">Środek</button>
+                <button class="chip-btn" data-clip-anchor="end" data-i18n="anchor_end">Koniec</button>
+                <button class="chip-btn" data-clip-anchor="playhead" data-i18n="anchor_playhead">Wokół kursora</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT: Batch Presets & Export Inspector -->
+      <aside class="panel inspector-panel">
+        <div class="inspector-scroll">
+          <!-- Batch Rule Card -->
+          <div class="inspector-section">
+            <div class="section-head">
+              <h3 data-i18n="batch_title">Masowe przycinanie</h3>
+              <span class="section-tag" data-i18n="batch_tag">Wszystkie filmy</span>
+            </div>
+            <p class="section-desc" data-i18n="batch_desc">
+              Ustaw jedną regułę dla wszystkich zaznaczonych klipów (np. skróć 15 filmów do ostatnich 5 sekund), a potem doprecyzuj wybrane na osi czasu.
+            </p>
+
+            <div class="form-row">
+              <label for="batchDuration" data-i18n="batch_duration_label">Docelowa długość (sekundy)</label>
+              <div class="duration-input-group">
+                <input type="number" id="batchDuration" value="5" min="0.5" max="600" step="0.5" />
+                <div class="mini-chips">
+                  <button class="mini-chip" data-batch-dur="3">3s</button>
+                  <button class="mini-chip active" data-batch-dur="5">5s</button>
+                  <button class="mini-chip" data-batch-dur="8">8s</button>
+                  <button class="mini-chip" data-batch-dur="10">10s</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <label for="batchAnchor" data-i18n="batch_anchor_label">Który fragment zachować?</label>
+              <select id="batchAnchor" class="select-input">
+                <option value="end" selected data-i18n="batch_opt_end">Ostatnie N sekund (idealne do eventów)</option>
+                <option value="start" data-i18n="batch_opt_start">Pierwsze N sekund</option>
+                <option value="middle" data-i18n="batch_opt_middle">Środek klipu (N sekund)</option>
+                <option value="custom" data-i18n="batch_opt_custom">Własny zakres (od sekundy X do Y)</option>
+              </select>
+            </div>
+
+            <div class="custom-range-row hidden" id="batchCustomRange">
+              <div class="form-col">
+                <label for="batchCustomStart" data-i18n="batch_from">Od (s)</label>
+                <input type="number" id="batchCustomStart" value="25" min="0" step="0.5" />
+              </div>
+              <div class="form-col">
+                <label for="batchCustomEnd" data-i18n="batch_to">Do (s)</label>
+                <input type="number" id="batchCustomEnd" value="30" min="0.5" step="0.5" />
+              </div>
+            </div>
+
+            <button class="btn btn-secondary btn-full" id="btnApplyBatch" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 13l4 4L19 7"/></svg>
+              <span data-i18n="batch_apply_prefix">Zastosuj do zaznaczonych</span> (<span id="applyBatchCount">0</span>)
+            </button>
+          </div>
+
+          <!-- Quality Mode Card -->
+          <div class="inspector-section">
+            <div class="section-head">
+              <h3 data-i18n="quality_title">Jakość i silnik cięcia</h3>
+            </div>
+
+            <div class="mode-cards">
+              <label class="mode-card active" id="modeCardLossless">
+                <input type="radio" name="exportMode" value="lossless" checked />
+                <div class="mode-card-top">
+                  <span class="mode-title" data-i18n="mode_lossless_title">100% Bezstratny (Stream Copy)</span>
+                  <span class="pill-green" data-i18n="mode_lossless_pill">0% straty</span>
+                </div>
+                <p class="mode-desc" data-i18n="mode_lossless_desc">
+                  Kopiuje oryginalne strumienie wideo i audio bez rekompresji. Jakość identyczna co do bita, błyskawiczny zapis (~0.1s/film).
+                </p>
+              </label>
+
+              <div class="sub-option-box" id="snapKeyframeBox">
+                <label class="checkbox-row">
+                  <input type="checkbox" id="chkSnapKeyframe" checked />
+                  <span data-i18n="snap_kf_label">Wyrównaj początek do klatki kluczowej (I-frame)</span>
+                </label>
+                <p class="tiny-hint" data-i18n="snap_kf_hint">
+                  Zapobiega czarnym/zamrożonym pierwszym klatkom przy cięciu bezstratnym. Długość może się różnić o 0.2–1.5s w zależności od klipu.
+                </p>
+              </div>
+
+              <label class="mode-card" id="modeCardPrecise">
+                <input type="radio" name="exportMode" value="precise" />
+                <div class="mode-card-top">
+                  <span class="mode-title" data-i18n="mode_precise_title">Co do klatki (Wizualnie bezstratny)</span>
+                  <span class="pill-indigo" data-i18n="mode_precise_pill">0.01s</span>
+                </div>
+                <p class="mode-desc" data-i18n="mode_precise_desc">
+                  Dokładne cięcie niezależnie od klatek kluczowych (H.264 CRF 15 — nieodróżnialne od oryginału, dźwięk 100% bezstratny).
+                </p>
+              </label>
+            </div>
+          </div>
+
+          <!-- Output Settings Card -->
+          <div class="inspector-section">
+            <div class="section-head">
+              <h3 data-i18n="output_title">Zapis plików</h3>
+            </div>
+
+            <label class="checkbox-row">
+              <input type="checkbox" id="chkSourceSubfolder" checked />
+              <span data-i18n-html="output_subfolder_html">Zapisz w podfolderze <code>Przyciete</code> obok oryginałów</span>
+            </label>
+
+            <div class="custom-dir-picker hidden" id="customOutputDirWrap">
+              <div class="dir-display" id="outputDirDisplay" data-i18n-title="output_dir_title" title="Wybierz folder docelowy">Nie wybrano folderu</div>
+              <button class="btn btn-ghost btn-sm" id="btnPickOutputDir" data-i18n="btn_change">Zmień...</button>
+            </div>
+
+            <div class="form-row suffix-row">
+              <label for="inputSuffix" data-i18n="suffix_label">Dopisek do nazwy pliku</label>
+              <input type="text" id="inputSuffix" value="_cut" maxlength="40" placeholder="_cut" />
+              <div class="filename-preview">
+                <span data-i18n="preview_label">Podgląd:</span> <code id="outputNamePreview">event_01_cut.mp4</code>
+              </div>
+            </div>
+
+            <label class="checkbox-row">
+              <input type="checkbox" id="chkOverwrite" />
+              <span data-i18n="overwrite_label">Nadpisuj istniejące pliki w folderze docelowym</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Sticky Export Footer -->
+        <div class="inspector-footer">
+          <div class="export-meta-line">
+            <span id="exportReadyLabel">Gotowe do eksportu: 0 z 0</span>
+            <span class="mode-indicator" id="exportModeIndicator">Stream Copy</span>
+          </div>
+          <button class="btn btn-primary btn-export-main" id="btnMainExport" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+            <span data-i18n="btn_trim_and_save">Przytnij i zapisz</span> (<span id="mainExportCount">0</span>)
+          </button>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Global Drag & Drop Overlay -->
+  <div class="drag-overlay hidden" id="dragOverlay">
+    <div class="drag-overlay-box">
+      <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.2">
+        <path d="M24 32V12M16 20l8-8 8 8"/>
+        <rect x="8" y="32" width="32" height="8" rx="3"/>
+      </svg>
+      <h2 data-i18n="drag_title">Upuść filmy tutaj</h2>
+      <p data-i18n="drag_desc">Obsługiwane formaty: MP4, MKV, MOV, WEBM, AVI, TS</p>
+    </div>
+  </div>
+
+  <!-- Export Progress / Results Modal -->
+  <div class="modal-backdrop hidden" id="exportModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2 id="exportModalTitle">Przycinanie filmów...</h2>
+          <p class="modal-subtitle" id="exportModalSubtitle">Przetwarzanie bezstratne w toku</p>
+        </div>
+        <button class="icon-btn" id="btnCloseExportModal" data-i18n-title="modal_close" title="Zamknij">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="progress-block">
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="exportProgressBar" style="width: 0%"></div>
+        </div>
+        <div class="progress-stats">
+          <span id="exportProgressText">0 / 0</span>
+          <span id="exportProgressPct">0%</span>
+        </div>
+      </div>
+
+      <div class="export-summary-banner hidden" id="exportSummaryBanner"></div>
+
+      <div class="export-results-list" id="exportResultsList"></div>
+
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btnExportModalDone" data-i18n="modal_close">Zamknij</button>
+        <button class="btn btn-primary hidden" id="btnOpenOutputFolder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+          <span data-i18n="modal_open_folder">Otwórz folder z wynikami</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shortcuts Modal -->
+  <div class="modal-backdrop hidden" id="shortcutsModal">
+    <div class="modal-card modal-sm">
+      <div class="modal-header">
+        <h2 data-i18n="shortcuts_title">Skróty klawiszowe</h2>
+        <button class="icon-btn" id="btnCloseShortcuts" data-i18n-title="modal_close" title="Zamknij">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="shortcuts-grid">
+        <div class="sc-row"><kbd data-i18n="sc_space_key">Spacja</kbd><span data-i18n="sc_space">Odtwórz / Pauza</span></div>
+        <div class="sc-row"><kbd>I</kbd><span data-i18n="sc_i">Ustaw początek wycinka (IN)</span></div>
+        <div class="sc-row"><kbd>O</kbd><span data-i18n="sc_o">Ustaw koniec wycinka (OUT)</span></div>
+        <div class="sc-row"><kbd>←</kbd> / <kbd>→</kbd><span data-i18n="sc_lr">Przesuń kursor o 0.5s (+Shift: 0.1s)</span></div>
+        <div class="sc-row"><kbd>↑</kbd> / <kbd>↓</kbd><span data-i18n="sc_ud">Poprzedni / Następny film z listy</span></div>
+        <div class="sc-row"><kbd>L</kbd><span data-i18n="sc_l">Włącz / Wyłącz pętlę wycinka</span></div>
+        <div class="sc-row"><kbd>M</kbd><span data-i18n="sc_m">Wycisz / Włącz dźwięk</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Stack -->
+  <div class="toast-stack" id="toastStack"></div>
+
+  <script src="/static/i18n.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+# Python virtual environment & caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Runtime caches & temporary uploads
+.cache/
+Eksport/
+Przyciete/
+Trimmed/
+
+# Portable FFmpeg binaries (>100MB, auto-downloaded on first launch by START.bat)
+bin/*.exe
+bin/*.zip
+bin/_tmp/
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
