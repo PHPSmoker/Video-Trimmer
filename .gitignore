@@ -1,5 +1,6 @@
-# Python virtual environment & caches
+# Python virtual environment, portable runtime & caches
 .venv/
+.tools/
 venv/
 __pycache__/
 *.py[cod]
