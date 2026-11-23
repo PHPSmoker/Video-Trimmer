@@ -66,6 +66,7 @@
           <div class="panel-title-group">
             <h2 data-i18n="queue_title">Kolejka eventów</h2>
             <span class="count-badge" id="queueCountBadge">0</span>
+            <span class="reviewed-badge hidden" id="queueReviewedBadge" data-i18n-title="queue_reviewed_title" title="Sprawdzone klipy">0/0 ✓</span>
           </div>
           <div class="panel-actions">
             <button class="icon-btn" id="btnToggleSelectAll" data-i18n-title="queue_select_all_title" title="Zaznacz / Odznacz wszystkie">
@@ -139,6 +140,10 @@
               <div class="clip-meta-tags" id="activeClipMetaTags"></div>
             </div>
             <div class="clip-nav-controls">
+              <button class="btn btn-review btn-sm" id="btnMarkReviewed" data-i18n-title="btn_review_title" title="Zatwierdź wycinek i przejdź do następnego (Enter)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M20 6L9 17l-5-5"/></svg>
+                <span id="btnMarkReviewedText" data-i18n="btn_review">Zatwierdź</span>
+              </button>
               <button class="btn btn-ghost btn-sm" id="btnPrevClip" data-i18n-title="btn_prev_title" title="Poprzedni film (Strzałka w górę)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
                 <span data-i18n="btn_prev">Poprzedni</span>
@@ -176,11 +181,23 @@
                 <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
                 <svg id="iconPause" class="hidden" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
               </button>
+              <button class="icon-btn step-micro-btn" id="btnKfPrev" data-i18n-title="kf_prev_title" title="Poprzednia klatka kluczowa I-frame (Ctrl + ←)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 18l-6-6 6-6"/><path d="M6 6v12"/></svg>
+              </button>
+              <button class="icon-btn step-micro-btn" id="btnFrameBack" data-i18n-title="frame_back_title" title="Cofnij o 1 klatkę (,)">
+                <span class="micro-lbl">-1f</span>
+              </button>
               <button class="icon-btn" id="btnStepBack" data-i18n-title="step_back_title" title="Cofnij o 0.5s (←)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/></svg>
               </button>
               <button class="icon-btn" id="btnStepFwd" data-i18n-title="step_fwd_title" title="Naprzód o 0.5s (→)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 17l5-5-5-5M6 17l5-5-5-5"/></svg>
+              </button>
+              <button class="icon-btn step-micro-btn" id="btnFrameFwd" data-i18n-title="frame_fwd_title" title="Naprzód o 1 klatkę (.)">
+                <span class="micro-lbl">+1f</span>
+              </button>
+              <button class="icon-btn step-micro-btn" id="btnKfNext" data-i18n-title="kf_next_title" title="Następna klatka kluczowa I-frame (Ctrl + →)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 18l6-6-6-6"/><path d="M18 6v12"/></svg>
               </button>
               <button class="btn btn-pill active" id="btnLoopToggle" data-i18n-title="btn_loop_title" title="Zapętlaj tylko zaznaczony fragment (L)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
@@ -229,14 +246,25 @@
                 <input type="number" step="0.1" min="0.1" class="tl-num-input" id="inputEnd" />
                 <span class="tl-unit">s</span>
               </div>
-              <div class="tl-kf-legend" id="kfLegend" data-i18n-title="tl_keyframes_title" title="Złote znaczniki na dole osi to klatki kluczowe (I-frames) dla bezstratnego cięcia">
-                <span class="kf-dot"></span>
-                <span id="kfCountLabel" data-i18n="tl_keyframes">Klatki kluczowe</span>
+              <div class="tl-tools-right">
+                <button class="tl-tool-btn active" id="btnToggleWaveform" data-i18n-title="tl_waveform_title" title="Pokaż / Ukryj wykres fali dźwiękowej (Audio Waveform)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2M21 12h0"/></svg>
+                </button>
+                <div class="tl-zoom-group" data-i18n-title="tl_zoom_title" title="Przybliżenie osi czasu (kółko myszy na osi)">
+                  <button class="tl-zoom-btn" id="btnZoomOut" type="button">−</button>
+                  <button class="tl-zoom-readout" id="btnZoomReset" type="button" data-i18n-title="tl_zoom_reset_title" title="Resetuj powiększenie do 1.0x">1.0x</button>
+                  <button class="tl-zoom-btn" id="btnZoomIn" type="button">+</button>
+                </div>
+                <div class="tl-kf-legend" id="kfLegend" data-i18n-title="tl_keyframes_title" title="Złote znaczniki na dole osi to klatki kluczowe (I-frames) dla bezstratnego cięcia">
+                  <span class="kf-dot"></span>
+                  <span id="kfCountLabel" data-i18n="tl_keyframes">Klatki kluczowe</span>
+                </div>
               </div>
             </div>
 
             <div class="timeline-track-wrap" id="timelineTrack">
               <div class="timeline-filmstrip" id="timelineFilmstrip"></div>
+              <canvas class="timeline-waveform" id="timelineWaveform"></canvas>
               <div class="timeline-dim-left" id="tlDimLeft"></div>
               <div class="timeline-dim-right" id="tlDimRight"></div>
 
@@ -262,6 +290,11 @@
               </div>
             </div>
 
+            <!-- Zoom Pan Scrollbar (shown when zoom > 1x) -->
+            <div class="timeline-zoom-bar hidden" id="timelineZoomBar" data-i18n-title="tl_pan_title" title="Przeciągnij, aby przesuwać powiększoną oś czasu (lub Shift + kółko myszy)">
+              <div class="timeline-zoom-thumb" id="timelineZoomThumb"></div>
+            </div>
+
             <!-- Quick Per-Clip Presets -->
             <div class="timeline-quick-bar">
               <div class="quick-group">
@@ -278,6 +311,9 @@
                 <button class="chip-btn" data-clip-anchor="middle" data-i18n="anchor_middle">Środek</button>
                 <button class="chip-btn" data-clip-anchor="end" data-i18n="anchor_end">Koniec</button>
                 <button class="chip-btn" data-clip-anchor="playhead" data-i18n="anchor_playhead">Wokół kursora</button>
+                <button class="chip-btn chip-best" id="btnClipBestMoment" data-i18n-title="anchor_best_title" title="Automatycznie znajdź najciekawszy moment (kolejne kliknięcia pokazują 2. i 3. moment)">
+                  <span data-i18n="anchor_best">✨ Najlepszy moment</span>
+                </button>
               </div>
             </div>
           </div>
@@ -314,6 +350,7 @@
               <label for="batchAnchor" data-i18n="batch_anchor_label">Który fragment zachować?</label>
               <select id="batchAnchor" class="select-input">
                 <option value="end" selected data-i18n="batch_opt_end">Ostatnie N sekund (idealne do eventów)</option>
+                <option value="best" data-i18n="batch_opt_best">✨ Najlepszy moment (Auto — dźwięk i ruch)</option>
                 <option value="start" data-i18n="batch_opt_start">Pierwsze N sekund</option>
                 <option value="middle" data-i18n="batch_opt_middle">Środek klipu (N sekund)</option>
                 <option value="custom" data-i18n="batch_opt_custom">Własny zakres (od sekundy X do Y)</option>
@@ -364,6 +401,17 @@
                   Zapobiega czarnym/zamrożonym pierwszym klatkom przy cięciu bezstratnym. Długość może się różnić o 0.2–1.5s w zależności od klipu.
                 </p>
               </div>
+
+              <label class="mode-card" id="modeCardSmart">
+                <input type="radio" name="exportMode" value="smart" />
+                <div class="mode-card-top">
+                  <span class="mode-title" data-i18n="mode_smart_title">Hybrydowy — Smart Cut</span>
+                  <span class="pill-cyan" data-i18n="mode_smart_pill">~95% copy • 0.01s</span>
+                </div>
+                <p class="mode-desc" data-i18n="mode_smart_desc">
+                  Rekompresuje tylko pierwszy ułamek sekundy do najbliższego I-frame, a resztę kopiuje bit w bit. Dokładny i błyskawiczny.
+                </p>
+              </label>
 
               <label class="mode-card" id="modeCardPrecise">
                 <input type="radio" name="exportMode" value="precise" />
@@ -463,12 +511,29 @@
 
       <div class="export-results-list" id="exportResultsList"></div>
 
+      <!-- Inline Recycle Bin Confirmation (safe, explicit opt-in) -->
+      <div class="recycle-confirm-bar hidden" id="recycleConfirmBar">
+        <div class="recycle-confirm-text" id="recycleConfirmText"></div>
+        <div class="recycle-confirm-actions">
+          <button class="btn btn-ghost btn-sm" id="btnCancelRecycle" data-i18n="recycle_cancel">Anuluj</button>
+          <button class="btn btn-danger btn-sm" id="btnConfirmRecycle" data-i18n="recycle_confirm">Tak, przenieś do Kosza</button>
+        </div>
+      </div>
+
+      <div class="recycle-done-banner hidden" id="recycleDoneBanner"></div>
+
       <div class="modal-footer">
-        <button class="btn btn-ghost" id="btnExportModalDone" data-i18n="modal_close">Zamknij</button>
-        <button class="btn btn-primary hidden" id="btnOpenOutputFolder">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
-          <span data-i18n="modal_open_folder">Otwórz folder z wynikami</span>
+        <button class="btn btn-danger-soft hidden" id="btnTrashOriginals">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2m2 0v14a2 2 0 01-2 2H8a2 2 0 01-2-2V6"/></svg>
+          <span id="btnTrashOriginalsText">Przenieś oryginały do Kosza</span>
         </button>
+        <div class="modal-footer-right">
+          <button class="btn btn-ghost" id="btnExportModalDone" data-i18n="modal_close">Zamknij</button>
+          <button class="btn btn-primary hidden" id="btnOpenOutputFolder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+            <span data-i18n="modal_open_folder">Otwórz folder z wynikami</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -486,10 +551,14 @@
         <div class="sc-row"><kbd data-i18n="sc_space_key">Spacja</kbd><span data-i18n="sc_space">Odtwórz / Pauza</span></div>
         <div class="sc-row"><kbd>I</kbd><span data-i18n="sc_i">Ustaw początek wycinka (IN)</span></div>
         <div class="sc-row"><kbd>O</kbd><span data-i18n="sc_o">Ustaw koniec wycinka (OUT)</span></div>
+        <div class="sc-row"><kbd>,</kbd> / <kbd>.</kbd><span data-i18n="sc_frame">Przesuń o 1 klatkę</span></div>
         <div class="sc-row"><kbd>←</kbd> / <kbd>→</kbd><span data-i18n="sc_lr">Przesuń kursor o 0.5s (+Shift: 0.1s)</span></div>
+        <div class="sc-row"><kbd>Ctrl</kbd> + <kbd>←</kbd> / <kbd>→</kbd><span data-i18n="sc_kf">Poprzednia / Następna klatka kluczowa (I-frame)</span></div>
         <div class="sc-row"><kbd>↑</kbd> / <kbd>↓</kbd><span data-i18n="sc_ud">Poprzedni / Następny film z listy</span></div>
+        <div class="sc-row"><kbd>Enter</kbd><span data-i18n="sc_enter">Zatwierdź klip i przejdź do następnego</span></div>
         <div class="sc-row"><kbd>L</kbd><span data-i18n="sc_l">Włącz / Wyłącz pętlę wycinka</span></div>
         <div class="sc-row"><kbd>M</kbd><span data-i18n="sc_m">Wycisz / Włącz dźwięk</span></div>
+        <div class="sc-row"><kbd data-i18n="sc_scroll_key">Kółko myszy</kbd><span data-i18n="sc_scroll">Przybliżenie osi czasu (+Shift: przewijanie)</span></div>
       </div>
     </div>
   </div>

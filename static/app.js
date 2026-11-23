@@ -6,16 +6,23 @@
 
   // ── App State ─────────────────────────────────────────────────────────────
   const state = {
-    clips: [], // { id, name, path, dir, ext, meta, start, end, selected, keyframes }
+    clips: [], // { id, name, path, dir, ext, meta, start, end, selected, reviewed, keyframes, waveform }
     activeId: null,
     loopSelection: true,
+    showWaveform: true,
+    zoom: 1,
+    viewStart: 0,
     outputDir: "",
     defaultOutputDir: "",
     exportPollTimer: null,
     lastOutputDir: "",
     lastExportJob: null,
+    lastExportJobId: null,
     engineState: "ok", // "ok" | "no_ffmpeg" | "offline"
     isLoadingDialog: false,
+    isDetectingBest: false,
+    sessionSaveTimer: null,
+    isRestoringSession: false,
   };
 
   // ── DOM References ────────────────────────────────────────────────────────
@@ -27,6 +34,7 @@
     langSwitch: $("langSwitch"),
     headerClipCount: $("headerClipCount"),
     queueCountBadge: $("queueCountBadge"),
+    queueReviewedBadge: $("queueReviewedBadge"),
     queueList: $("queueList"),
     queueEmptyHint: $("queueEmptyHint"),
 
@@ -42,11 +50,17 @@
     hudTotalTime: $("hudTotalTime"),
     playerLoopBadge: $("playerLoopBadge"),
 
+    btnMarkReviewed: $("btnMarkReviewed"),
+    btnMarkReviewedText: $("btnMarkReviewedText"),
     btnPlayPause: $("btnPlayPause"),
     iconPlay: $("iconPlay"),
     iconPause: $("iconPause"),
+    btnKfPrev: $("btnKfPrev"),
+    btnFrameBack: $("btnFrameBack"),
     btnStepBack: $("btnStepBack"),
     btnStepFwd: $("btnStepFwd"),
+    btnFrameFwd: $("btnFrameFwd"),
+    btnKfNext: $("btnKfNext"),
     btnLoopToggle: $("btnLoopToggle"),
     btnSetIn: $("btnSetIn"),
     btnSetOut: $("btnSetOut"),
@@ -60,10 +74,15 @@
     inputStart: $("inputStart"),
     inputDuration: $("inputDuration"),
     inputEnd: $("inputEnd"),
+    btnToggleWaveform: $("btnToggleWaveform"),
+    btnZoomOut: $("btnZoomOut"),
+    btnZoomReset: $("btnZoomReset"),
+    btnZoomIn: $("btnZoomIn"),
     kfCountLabel: $("kfCountLabel"),
 
     timelineTrack: $("timelineTrack"),
     timelineFilmstrip: $("timelineFilmstrip"),
+    timelineWaveform: $("timelineWaveform"),
     tlDimLeft: $("tlDimLeft"),
     tlDimRight: $("tlDimRight"),
     tlSelection: $("tlSelection"),
@@ -72,6 +91,9 @@
     tlHandleRight: $("tlHandleRight"),
     tlKeyframes: $("tlKeyframes"),
     tlPlayhead: $("tlPlayhead"),
+    timelineZoomBar: $("timelineZoomBar"),
+    timelineZoomThumb: $("timelineZoomThumb"),
+    btnClipBestMoment: $("btnClipBestMoment"),
 
     batchDuration: $("batchDuration"),
     batchAnchor: $("batchAnchor"),
@@ -82,6 +104,7 @@
     applyBatchCount: $("applyBatchCount"),
 
     modeCardLossless: $("modeCardLossless"),
+    modeCardSmart: $("modeCardSmart"),
     modeCardPrecise: $("modeCardPrecise"),
     snapKeyframeBox: $("snapKeyframeBox"),
     chkSnapKeyframe: $("chkSnapKeyframe"),
@@ -117,6 +140,13 @@
     exportProgressPct: $("exportProgressPct"),
     exportSummaryBanner: $("exportSummaryBanner"),
     exportResultsList: $("exportResultsList"),
+    recycleConfirmBar: $("recycleConfirmBar"),
+    recycleConfirmText: $("recycleConfirmText"),
+    btnCancelRecycle: $("btnCancelRecycle"),
+    btnConfirmRecycle: $("btnConfirmRecycle"),
+    recycleDoneBanner: $("recycleDoneBanner"),
+    btnTrashOriginals: $("btnTrashOriginals"),
+    btnTrashOriginalsText: $("btnTrashOriginalsText"),
     btnCloseExportModal: $("btnCloseExportModal"),
     btnExportModalDone: $("btnExportModalDone"),
     btnOpenOutputFolder: $("btnOpenOutputFolder"),
@@ -241,6 +271,94 @@
     return data;
   }
 
+  // ── Session Auto-Save & Restore ───────────────────────────────────────────
+  function buildSessionPayload() {
+    const active = getActiveClip();
+    return {
+      clips: state.clips.map((c) => ({
+        path: c.path,
+        start: round2(c.start),
+        end: round2(c.end),
+        selected: !!c.selected,
+        reviewed: !!c.reviewed,
+      })),
+      active_path: active ? active.path : null,
+      settings: {
+        mode: getExportMode(),
+        snap_keyframe: els.chkSnapKeyframe.checked,
+        batch_duration: parseFloat(els.batchDuration.value) || 5,
+        batch_anchor: els.batchAnchor.value,
+        batch_custom_start: parseFloat(els.batchCustomStart.value) || 0,
+        batch_custom_end: parseFloat(els.batchCustomEnd.value) || 5,
+        use_source_subfolder: els.chkSourceSubfolder.checked,
+        output_dir: state.outputDir,
+        suffix: els.inputSuffix.value ?? "_cut",
+        overwrite: els.chkOverwrite.checked,
+        show_waveform: state.showWaveform,
+      },
+    };
+  }
+
+  function scheduleSessionSave() {
+    if (state.isRestoringSession) return;
+    if (state.sessionSaveTimer) clearTimeout(state.sessionSaveTimer);
+    state.sessionSaveTimer = setTimeout(() => {
+      state.sessionSaveTimer = null;
+      fetch("/api/session/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildSessionPayload()),
+      }).catch(() => {});
+    }, 450);
+  }
+
+  function applySavedSettings(s) {
+    if (!s || typeof s !== "object") return;
+    if (s.mode && ["lossless", "smart", "precise"].includes(s.mode)) {
+      const radio = document.querySelector(`input[name="exportMode"][value="${s.mode}"]`);
+      if (radio) radio.checked = true;
+    }
+    if (typeof s.snap_keyframe === "boolean") {
+      els.chkSnapKeyframe.checked = s.snap_keyframe;
+    }
+    if (Number.isFinite(Number(s.batch_duration)) && Number(s.batch_duration) > 0) {
+      els.batchDuration.value = String(s.batch_duration);
+      document.querySelectorAll("[data-batch-dur]").forEach((b) => {
+        b.classList.toggle("active", b.dataset.batchDur === els.batchDuration.value);
+      });
+    }
+    if (s.batch_anchor && ["end", "best", "start", "middle", "custom"].includes(s.batch_anchor)) {
+      els.batchAnchor.value = s.batch_anchor;
+      els.batchCustomRange.classList.toggle("hidden", s.batch_anchor !== "custom");
+    }
+    if (Number.isFinite(Number(s.batch_custom_start))) {
+      els.batchCustomStart.value = String(s.batch_custom_start);
+    }
+    if (Number.isFinite(Number(s.batch_custom_end))) {
+      els.batchCustomEnd.value = String(s.batch_custom_end);
+    }
+    if (typeof s.use_source_subfolder === "boolean") {
+      els.chkSourceSubfolder.checked = s.use_source_subfolder;
+      els.customOutputDirWrap.classList.toggle("hidden", s.use_source_subfolder);
+    }
+    if (typeof s.output_dir === "string") {
+      state.outputDir = s.output_dir;
+      renderOutputDirDisplay();
+    }
+    if (typeof s.suffix === "string") {
+      els.inputSuffix.value = s.suffix;
+    }
+    if (typeof s.overwrite === "boolean") {
+      els.chkOverwrite.checked = s.overwrite;
+    }
+    if (typeof s.show_waveform === "boolean") {
+      state.showWaveform = s.show_waveform;
+      els.btnToggleWaveform.classList.toggle("active", state.showWaveform);
+    }
+    syncModeCards();
+    updateFilenamePreview();
+  }
+
   async function initHealthCheck() {
     try {
       const data = await apiJson("/api/health");
@@ -253,10 +371,41 @@
         state.engineState = "ok";
         renderEngineBadge();
       }
-      // Restore clips if page was refreshed while server was still running
-      const existing = await apiJson("/api/clips");
-      if (existing.clips && existing.clips.length > 0) {
-        ingestBackendClips(existing.clips, false);
+
+      state.isRestoringSession = true;
+      try {
+        const [existing, saved] = await Promise.all([
+          apiJson("/api/clips"),
+          apiJson("/api/session/restore").catch(() => ({
+            clips: [],
+            states_by_path: {},
+            active_path: null,
+            settings: {},
+          })),
+        ]);
+
+        applySavedSettings(saved.settings);
+
+        const statesByPath = saved.states_by_path || {};
+        const restoredClips =
+          existing.clips && existing.clips.length > 0 ? existing.clips : saved.clips || [];
+
+        if (restoredClips.length > 0) {
+          ingestBackendClips(restoredClips, false, statesByPath);
+          if (saved.active_path) {
+            const match = state.clips.find(
+              (c) => c.path.toLowerCase() === saved.active_path.toLowerCase()
+            );
+            if (match && match.id !== state.activeId) {
+              selectClip(match.id);
+            }
+          }
+          if ((!existing.clips || existing.clips.length === 0) && state.clips.length > 0) {
+            showToast(t("toast_session_restored", { n: state.clips.length }), "info", 3000);
+          }
+        }
+      } finally {
+        state.isRestoringSession = false;
       }
     } catch (err) {
       state.engineState = "offline";
@@ -264,7 +413,7 @@
     }
   }
 
-  function ingestBackendClips(rawClips, announce = true) {
+  function ingestBackendClips(rawClips, announce = true, statesByPath = null) {
     if (!rawClips || rawClips.length === 0) return;
 
     const anchor = els.batchAnchor.value;
@@ -272,13 +421,32 @@
     const customStart = parseFloat(els.batchCustomStart.value) || 0;
     const customEnd = parseFloat(els.batchCustomEnd.value) || 5;
 
-    let addedCount = 0;
+    const newlyAdded = [];
     for (const raw of rawClips) {
       if (state.clips.some((c) => c.id === raw.id)) continue;
       const dur = Number(raw.meta?.duration || 0);
-      const { start, end } = computeRangeForRule(dur, anchor, targetDur, customStart, customEnd);
+      let { start, end } = computeRangeForRule(
+        dur,
+        anchor === "best" ? "end" : anchor,
+        targetDur,
+        customStart,
+        customEnd
+      );
+      let selected = true;
+      let reviewed = false;
 
-      state.clips.push({
+      const savedState = statesByPath && raw.path ? statesByPath[raw.path.toLowerCase()] : null;
+      if (savedState) {
+        const safeDur = Math.max(0.2, dur || 1);
+        const s = clamp(Number(savedState.start) || 0, 0, Math.max(0, safeDur - 0.1));
+        const e = clamp(Number(savedState.end) || safeDur, s + 0.1, safeDur);
+        start = round2(s);
+        end = round2(e);
+        selected = savedState.selected !== false;
+        reviewed = !!savedState.reviewed;
+      }
+
+      const clipObj = {
         id: raw.id,
         name: raw.name,
         path: raw.path,
@@ -288,12 +456,18 @@
         meta: raw.meta || {},
         start,
         end,
-        selected: true,
+        selected,
+        reviewed,
         keyframes: null,
-      });
-      addedCount++;
+        waveform: null,
+        bestMoments: null,
+        bestMomentIdx: -1,
+      };
+      state.clips.push(clipObj);
+      newlyAdded.push(clipObj);
     }
 
+    const addedCount = newlyAdded.length;
     if (addedCount > 0) {
       if (!state.activeId && state.clips.length > 0) {
         selectClip(state.clips[0].id);
@@ -301,6 +475,7 @@
       renderQueue();
       updateGlobalCounters();
       updateFilenamePreview();
+      scheduleSessionSave();
       if (announce) {
         showToast(
           addedCount === 1
@@ -308,6 +483,10 @@
             : t("toast_added_many", { n: addedCount }),
           "success"
         );
+      }
+      // If "Best moment" is the active batch rule and clips weren't restored from saved ranges, auto-detect!
+      if (!statesByPath && anchor === "best") {
+        applyBestMomentToClips(newlyAdded, targetDur, false);
       }
     }
   }
@@ -399,6 +578,7 @@
     renderQueue();
     updateGlobalCounters();
     updateFilenamePreview();
+    scheduleSessionSave();
   }
 
   async function clearAllClips() {
@@ -416,6 +596,7 @@
     renderQueue();
     updateGlobalCounters();
     updateFilenamePreview();
+    scheduleSessionSave();
     showToast(t("toast_cleared"));
   }
 
@@ -435,6 +616,7 @@
       card.className = "clip-card";
       if (clip.id === state.activeId) card.classList.add("active");
       if (!clip.selected) card.classList.add("unchecked");
+      if (clip.reviewed) card.classList.add("reviewed");
       card.dataset.id = clip.id;
 
       const origDur = Number(clip.meta?.duration || 0);
@@ -456,6 +638,7 @@
           <div class="clip-submeta">${escapeHtml(subParts || formatBytes(clip.meta?.size_bytes))}</div>
           <div class="clip-trim-row">
             <span class="trim-pill ${isTrimmed ? "" : "full"}">${formatShortSec(origDur)} → ${formatShortSec(cutDur)}</span>
+            ${clip.reviewed ? `<span class="clip-reviewed-pill" title="${escapeHtml(t("clip_reviewed_badge"))}">✓</span>` : ""}
           </div>
         </div>
         <button class="clip-remove-btn" title="${escapeHtml(t("clip_remove_title"))}">
@@ -469,6 +652,7 @@
         clip.selected = checkbox.checked;
         card.classList.toggle("unchecked", !clip.selected);
         updateGlobalCounters();
+        scheduleSessionSave();
       });
 
       const removeBtn = card.querySelector(".clip-remove-btn");
@@ -483,18 +667,95 @@
 
     els.queueList.innerHTML = "";
     els.queueList.appendChild(frag);
+    updateReviewedUI();
   }
 
   function updateQueueCardTrim(clip) {
     const card = els.queueList.querySelector(`.clip-card[data-id="${clip.id}"]`);
     if (!card) return;
     const pill = card.querySelector(".trim-pill");
-    if (!pill) return;
-    const origDur = Number(clip.meta?.duration || 0);
-    const cutDur = Math.max(0, clip.end - clip.start);
-    const isTrimmed = origDur > 0 && Math.abs(origDur - cutDur) > 0.15;
-    pill.textContent = `${formatShortSec(origDur)} → ${formatShortSec(cutDur)}`;
-    pill.classList.toggle("full", !isTrimmed);
+    if (pill) {
+      const origDur = Number(clip.meta?.duration || 0);
+      const cutDur = Math.max(0, clip.end - clip.start);
+      const isTrimmed = origDur > 0 && Math.abs(origDur - cutDur) > 0.15;
+      pill.textContent = `${formatShortSec(origDur)} → ${formatShortSec(cutDur)}`;
+      pill.classList.toggle("full", !isTrimmed);
+    }
+    card.classList.toggle("reviewed", !!clip.reviewed);
+    const trimRow = card.querySelector(".clip-trim-row");
+    if (trimRow) {
+      let badge = trimRow.querySelector(".clip-reviewed-pill");
+      if (clip.reviewed && !badge) {
+        badge = document.createElement("span");
+        badge.className = "clip-reviewed-pill";
+        badge.title = t("clip_reviewed_badge");
+        badge.textContent = "✓";
+        trimRow.appendChild(badge);
+      } else if (!clip.reviewed && badge) {
+        badge.remove();
+      }
+    }
+  }
+
+  function updateReviewedUI() {
+    const total = state.clips.length;
+    const reviewedCount = state.clips.filter((c) => c.reviewed).length;
+    if (total === 0) {
+      els.queueReviewedBadge.classList.add("hidden");
+    } else {
+      els.queueReviewedBadge.classList.remove("hidden");
+      els.queueReviewedBadge.textContent = `${reviewedCount}/${total} ✓`;
+    }
+
+    const active = getActiveClip();
+    const isRev = !!(active && active.reviewed);
+    els.btnMarkReviewed.classList.toggle("is-reviewed", isRev);
+    els.btnMarkReviewedText.textContent = isRev ? t("btn_reviewed_done") : t("btn_review");
+  }
+
+  function markActiveReviewedAndAdvance(toggleOnly = false) {
+    const clip = getActiveClip();
+    if (!clip) return;
+
+    if (toggleOnly) {
+      clip.reviewed = !clip.reviewed;
+      updateQueueCardTrim(clip);
+      updateReviewedUI();
+      scheduleSessionSave();
+      return;
+    }
+
+    clip.reviewed = true;
+    updateQueueCardTrim(clip);
+    updateReviewedUI();
+    scheduleSessionSave();
+
+    const curIdx = state.clips.findIndex((c) => c.id === clip.id);
+    // Jump to next unreviewed clip after current, or wrap to first unreviewed, or next clip
+    let nextIdx = -1;
+    for (let i = curIdx + 1; i < state.clips.length; i++) {
+      if (!state.clips[i].reviewed) {
+        nextIdx = i;
+        break;
+      }
+    }
+    if (nextIdx === -1) {
+      for (let i = 0; i < curIdx; i++) {
+        if (!state.clips[i].reviewed) {
+          nextIdx = i;
+          break;
+        }
+      }
+    }
+
+    if (nextIdx !== -1) {
+      const targetClip = state.clips[nextIdx];
+      selectClip(targetClip.id);
+      const card = els.queueList.querySelector(`.clip-card[data-id="${targetClip.id}"]`);
+      card?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    } else {
+      showToast(t("toast_all_reviewed"), "success", 2800);
+    }
   }
 
   function escapeHtml(str) {
@@ -514,14 +775,22 @@
     els.mainExportCount.textContent = String(selected);
     els.exportReadyLabel.textContent = t("footer_ready", { selected, total });
 
-    els.btnApplyBatch.disabled = selected === 0;
+    els.btnApplyBatch.disabled = selected === 0 || state.isDetectingBest;
     els.btnMainExport.disabled = selected === 0;
     els.btnTopExport.disabled = selected === 0;
 
     const mode = getExportMode();
-    els.exportModeIndicator.textContent =
-      mode === "lossless" ? t("footer_mode_lossless") : t("footer_mode_precise");
-    els.exportModeIndicator.style.color = mode === "lossless" ? "#6ee7b7" : "#c7d2fe";
+    if (mode === "lossless") {
+      els.exportModeIndicator.textContent = t("footer_mode_lossless");
+      els.exportModeIndicator.style.color = "#6ee7b7";
+    } else if (mode === "smart") {
+      els.exportModeIndicator.textContent = t("footer_mode_smart");
+      els.exportModeIndicator.style.color = "#67e8f9";
+    } else {
+      els.exportModeIndicator.textContent = t("footer_mode_precise");
+      els.exportModeIndicator.style.color = "#c7d2fe";
+    }
+    updateReviewedUI();
   }
 
   function updateFilenamePreview() {
@@ -556,12 +825,114 @@
       .join("");
   }
 
+  // ── Zoom & Viewport Math ──────────────────────────────────────────────────
+  function getClipDuration(clip = getActiveClip()) {
+    return Math.max(0.1, Number(clip?.meta?.duration || els.videoPlayer.duration || 1));
+  }
+
+  function getViewDuration(dur) {
+    return dur / Math.max(1, state.zoom);
+  }
+
+  function clampViewStart(vs, dur) {
+    const maxStart = Math.max(0, dur - getViewDuration(dur));
+    return clamp(vs, 0, maxStart);
+  }
+
+  function timeToViewPct(sec, dur) {
+    const viewDur = Math.max(0.01, getViewDuration(dur));
+    return ((sec - state.viewStart) / viewDur) * 100;
+  }
+
+  function setTimelineZoom(newZoom, anchorSec = null, anchorRatio = 0.5) {
+    const clip = getActiveClip();
+    if (!clip) return;
+    const dur = getClipDuration(clip);
+    const z = clamp(Math.round(newZoom * 10) / 10, 1, 20);
+    const refSec =
+      anchorSec !== null ? anchorSec : state.viewStart + getViewDuration(dur) * anchorRatio;
+
+    state.zoom = z;
+    if (z <= 1.01) {
+      state.zoom = 1;
+      state.viewStart = 0;
+    } else {
+      const newViewDur = dur / z;
+      state.viewStart = clampViewStart(refSec - anchorRatio * newViewDur, dur);
+    }
+    updateTimelineUI();
+  }
+
+  function resetTimelineZoom() {
+    state.zoom = 1;
+    state.viewStart = 0;
+  }
+
+  function drawWaveform() {
+    const canvas = els.timelineWaveform;
+    if (!canvas) return;
+    const rect = els.timelineTrack.getBoundingClientRect();
+    const cssW = Math.max(1, Math.round(rect.width));
+    const cssH = Math.max(1, Math.round(rect.height));
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    if (canvas.width !== cssW * dpr || canvas.height !== cssH * dpr) {
+      canvas.width = cssW * dpr;
+      canvas.height = cssH * dpr;
+    }
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    const clip = getActiveClip();
+    if (!state.showWaveform || !clip || !clip.waveform || !clip.waveform.length) {
+      return;
+    }
+
+    const peaks = clip.waveform;
+    const dur = getClipDuration(clip);
+    const viewDur = getViewDuration(dur);
+    const startRatio = clamp(state.viewStart / dur, 0, 1);
+    const endRatio = clamp((state.viewStart + viewDur) / dur, startRatio, 1);
+
+    const idxStart = Math.floor(startRatio * peaks.length);
+    const idxEnd = Math.min(peaks.length, Math.ceil(endRatio * peaks.length));
+    const visibleCount = Math.max(1, idxEnd - idxStart);
+
+    // Target clean bar spacing (~3px per bar)
+    const maxBarsToDraw = Math.max(30, Math.floor(cssW / 3));
+    const barsCount = Math.min(visibleCount, maxBarsToDraw);
+    const barW = cssW / barsCount;
+    const centerY = cssH * 0.56;
+    const maxHalfH = cssH * 0.34;
+
+    ctx.fillStyle = "rgba(56, 189, 248, 0.36)";
+    for (let i = 0; i < barsCount; i++) {
+      const sLo = idxStart + Math.floor((i / barsCount) * visibleCount);
+      const sHi = Math.max(sLo + 1, idxStart + Math.floor(((i + 1) / barsCount) * visibleCount));
+      let peak = 0;
+      for (let j = sLo; j < Math.min(sHi, peaks.length); j++) {
+        if (peaks[j] > peak) peak = peaks[j];
+      }
+      const h = Math.max(1.5, peak * maxHalfH);
+      const x = i * barW;
+      const drawW = Math.max(1.2, barW - 1);
+      ctx.fillRect(x, centerY - h, drawW, h * 2);
+    }
+
+    // Subtle crisp midline
+    ctx.fillStyle = "rgba(103, 232, 249, 0.18)";
+    ctx.fillRect(0, centerY - 0.5, cssW, 1);
+  }
+
   async function selectClip(clipId) {
     const idx = state.clips.findIndex((c) => c.id === clipId);
     if (idx === -1) return;
 
     state.activeId = clipId;
     const clip = state.clips[idx];
+    resetTimelineZoom();
 
     els.emptyStage.classList.add("hidden");
     els.editorStage.classList.remove("hidden");
@@ -577,6 +948,7 @@
     els.activeClipTitle.textContent = clip.name;
     els.activeClipTitle.title = clip.path;
     renderActiveClipMetaTags(clip);
+    updateReviewedUI();
 
     els.btnPrevClip.disabled = idx === 0;
     els.btnNextClip.disabled = idx === state.clips.length - 1;
@@ -606,6 +978,23 @@
     // Update timeline & numeric inputs immediately
     updateTimelineUI();
     updateFilenamePreview();
+    scheduleSessionSave();
+
+    // Fetch waveform lazily
+    if (clip.waveform === null && clip.meta?.audio_tracks > 0) {
+      apiJson(`/api/media/${clip.id}/waveform`)
+        .then((res) => {
+          clip.waveform = Array.isArray(res.peaks) ? res.peaks : [];
+          if (state.activeId === clip.id) {
+            drawWaveform();
+          }
+        })
+        .catch(() => {
+          clip.waveform = [];
+        });
+    } else if (clip.waveform === null) {
+      clip.waveform = [];
+    }
 
     // Fetch keyframes lazily for visual I-frame ticks
     renderKeyframeTicks(clip.keyframes || []);
@@ -633,12 +1022,16 @@
       els.kfCountLabel.textContent = t("tl_keyframes");
       return;
     }
-    const dur = clip.meta.duration;
-    // Cap rendered ticks if a huge clip has hundreds of keyframes
-    const step = keyframes.length > 90 ? Math.ceil(keyframes.length / 90) : 1;
+    const dur = getClipDuration(clip);
+    const viewEnd = state.viewStart + getViewDuration(dur);
+    const visibleKfs = keyframes.filter((kf) => kf >= state.viewStart - 0.05 && kf <= viewEnd + 0.05);
+
+    // Cap rendered ticks if zoomed out on a huge clip
+    const step = visibleKfs.length > 100 ? Math.ceil(visibleKfs.length / 100) : 1;
     const frag = document.createDocumentFragment();
-    for (let i = 0; i < keyframes.length; i += step) {
-      const pct = clamp((keyframes[i] / dur) * 100, 0, 100);
+    for (let i = 0; i < visibleKfs.length; i += step) {
+      const pct = timeToViewPct(visibleKfs[i], dur);
+      if (pct < 0 || pct > 100) continue;
       const tick = document.createElement("div");
       tick.className = "kf-tick";
       tick.style.left = `${pct}%`;
@@ -649,17 +1042,37 @@
   }
 
   // ── Timeline & Player Synchronization ─────────────────────────────────────
+  function updateZoomBarUI(dur) {
+    const zoomed = state.zoom > 1.01;
+    els.btnZoomReset.textContent = `${state.zoom.toFixed(1)}x`;
+    els.btnZoomReset.classList.toggle("zoomed", zoomed);
+    els.timelineZoomBar.classList.toggle("hidden", !zoomed);
+    if (zoomed) {
+      const viewDur = getViewDuration(dur);
+      const leftPct = clamp((state.viewStart / dur) * 100, 0, 100);
+      const widthPct = clamp((viewDur / dur) * 100, 4, 100);
+      els.timelineZoomThumb.style.left = `${leftPct}%`;
+      els.timelineZoomThumb.style.width = `${widthPct}%`;
+    }
+  }
+
   function updateTimelineUI() {
     const clip = getActiveClip();
     if (!clip) return;
-    const dur = Math.max(0.1, Number(clip.meta?.duration || els.videoPlayer.duration || 1));
+    const dur = getClipDuration(clip);
+    state.viewStart = clampViewStart(state.viewStart, dur);
+    const viewDur = getViewDuration(dur);
 
-    const startPct = clamp((clip.start / dur) * 100, 0, 100);
-    const endPct = clamp((clip.end / dur) * 100, startPct, 100);
+    // Scale & offset filmstrip to match zoom viewport
+    els.timelineFilmstrip.style.width = `${state.zoom * 100}%`;
+    els.timelineFilmstrip.style.left = `${-(state.viewStart / viewDur) * 100}%`;
+
+    const startPct = timeToViewPct(clip.start, dur);
+    const endPct = timeToViewPct(clip.end, dur);
     const widthPct = Math.max(0.5, endPct - startPct);
 
-    els.tlDimLeft.style.width = `${startPct}%`;
-    els.tlDimRight.style.width = `${Math.max(0, 100 - endPct)}%`;
+    els.tlDimLeft.style.width = `${clamp(startPct, 0, 100)}%`;
+    els.tlDimRight.style.width = `${clamp(100 - endPct, 0, 100)}%`;
     els.tlSelection.style.left = `${startPct}%`;
     els.tlSelection.style.width = `${widthPct}%`;
 
@@ -677,6 +1090,11 @@
       els.inputDuration.value = selDur.toFixed(2);
     }
 
+    updateZoomBarUI(dur);
+    drawWaveform();
+    if (clip.keyframes && clip.keyframes.length) {
+      renderKeyframeTicks(clip.keyframes);
+    }
     updatePlayheadUI(els.videoPlayer.currentTime || clip.start);
     updateQueueCardTrim(clip);
   }
@@ -684,9 +1102,10 @@
   function updatePlayheadUI(currentTime) {
     const clip = getActiveClip();
     if (!clip) return;
-    const dur = Math.max(0.1, Number(clip.meta?.duration || els.videoPlayer.duration || 1));
-    const pct = clamp((currentTime / dur) * 100, 0, 100);
+    const dur = getClipDuration(clip);
+    const pct = timeToViewPct(currentTime, dur);
     els.tlPlayhead.style.left = `${pct}%`;
+    els.tlPlayhead.style.opacity = pct >= -1 && pct <= 101 ? "1" : "0";
     els.hudCurrentTime.textContent = formatTime(currentTime);
   }
 
@@ -698,6 +1117,16 @@
     if (!clip) return;
     const dur = Number(clip.meta?.duration || els.videoPlayer.duration || 0);
     const clamped = clamp(targetSec, 0, Math.max(0, dur));
+
+    // Keep playhead visible if zoomed in and seeking outside viewport
+    if (state.zoom > 1.01 && dur > 0) {
+      const viewDur = getViewDuration(dur);
+      if (clamped < state.viewStart || clamped > state.viewStart + viewDur) {
+        state.viewStart = clampViewStart(clamped - viewDur * 0.5, dur);
+        updateTimelineUI();
+      }
+    }
+
     updatePlayheadUI(clamped);
 
     if (immediate) {
@@ -721,6 +1150,59 @@
     }
   }
 
+  function stepFrame(dir) {
+    const clip = getActiveClip();
+    if (!clip) return;
+    els.videoPlayer.pause();
+    const fps = clip.meta?.fps && clip.meta.fps > 1 ? clip.meta.fps : 30;
+    const step = (1 / fps) * dir;
+    const cur = els.videoPlayer.currentTime || 0;
+    seekVideo(cur + step, true);
+  }
+
+  async function jumpKeyframe(dir) {
+    const clip = getActiveClip();
+    if (!clip) return;
+    if (clip.keyframes === null) {
+      try {
+        const res = await apiJson(`/api/media/${clip.id}/keyframes`);
+        clip.keyframes = res.keyframes || [];
+        if (state.activeId === clip.id) renderKeyframeTicks(clip.keyframes);
+      } catch (_) {
+        clip.keyframes = [];
+      }
+    }
+    const kfs = clip.keyframes || [];
+    if (!kfs.length) {
+      showToast(t("toast_no_keyframes"), "info", 1600);
+      return;
+    }
+
+    els.videoPlayer.pause();
+    const cur = els.videoPlayer.currentTime || 0;
+    let target = null;
+    if (dir < 0) {
+      for (let i = kfs.length - 1; i >= 0; i--) {
+        if (kfs[i] < cur - 0.03) {
+          target = kfs[i];
+          break;
+        }
+      }
+    } else {
+      for (let i = 0; i < kfs.length; i++) {
+        if (kfs[i] > cur + 0.03) {
+          target = kfs[i];
+          break;
+        }
+      }
+    }
+
+    if (target !== null) {
+      seekVideo(target, true);
+      showToast(t("toast_kf_jump", { t: target.toFixed(2) }), "info", 1200);
+    }
+  }
+
   function setClipRange(start, end, seekTo = null) {
     const clip = getActiveClip();
     if (!clip) return;
@@ -733,6 +1215,7 @@
     clip.start = round2(s);
     clip.end = round2(e);
     updateTimelineUI();
+    scheduleSessionSave();
 
     if (seekTo !== null) {
       seekVideo(seekTo);
@@ -775,7 +1258,7 @@
   }
   requestAnimationFrame(playbackTick);
 
-  // ── Pointer-Capture Timeline Dragging ─────────────────────────────────────
+  // ── Pointer-Capture Timeline Dragging & Zoom/Pan ──────────────────────────
   let dragState = null;
 
   function timeFromClientX(clientX) {
@@ -783,8 +1266,8 @@
     if (!clip) return 0;
     const rect = els.timelineTrack.getBoundingClientRect();
     const ratio = clamp((clientX - rect.left) / Math.max(1, rect.width), 0, 1);
-    const dur = Math.max(0.1, Number(clip.meta?.duration || els.videoPlayer.duration || 1));
-    return ratio * dur;
+    const dur = getClipDuration(clip);
+    return clamp(state.viewStart + ratio * getViewDuration(dur), 0, dur);
   }
 
   function startTimelineDrag(mode, e) {
@@ -855,6 +1338,88 @@
 
   els.timelineTrack.addEventListener("pointerup", endTimelineDrag);
   els.timelineTrack.addEventListener("pointercancel", endTimelineDrag);
+
+  // Mouse-wheel zoom (anchored at cursor) & Shift+wheel horizontal pan
+  els.timelineTrack.addEventListener(
+    "wheel",
+    (e) => {
+      const clip = getActiveClip();
+      if (!clip) return;
+      e.preventDefault();
+      const dur = getClipDuration(clip);
+
+      if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        if (state.zoom <= 1.01) return;
+        const delta = e.deltaX !== 0 ? e.deltaX : e.deltaY;
+        const panStep = getViewDuration(dur) * 0.14 * Math.sign(delta);
+        state.viewStart = clampViewStart(state.viewStart + panStep, dur);
+        updateTimelineUI();
+        return;
+      }
+
+      const rect = els.timelineTrack.getBoundingClientRect();
+      const ratio = clamp((e.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
+      const anchorSec = state.viewStart + ratio * getViewDuration(dur);
+      const factor = e.deltaY < 0 ? 1.25 : 0.8;
+      setTimelineZoom(state.zoom * factor, anchorSec, ratio);
+    },
+    { passive: false }
+  );
+
+  // Zoom pan scrollbar dragging
+  let panDrag = null;
+  els.timelineZoomBar.addEventListener("pointerdown", (e) => {
+    const clip = getActiveClip();
+    if (!clip || state.zoom <= 1.01) return;
+    e.preventDefault();
+    els.timelineZoomBar.setPointerCapture(e.pointerId);
+    const rect = els.timelineZoomBar.getBoundingClientRect();
+    const dur = getClipDuration(clip);
+    const viewDur = getViewDuration(dur);
+
+    if (e.target === els.timelineZoomThumb) {
+      panDrag = {
+        pointerId: e.pointerId,
+        originX: e.clientX,
+        origViewStart: state.viewStart,
+        trackW: Math.max(1, rect.width),
+        dur,
+      };
+    } else {
+      const clickRatio = clamp((e.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
+      state.viewStart = clampViewStart(clickRatio * dur - viewDur * 0.5, dur);
+      updateTimelineUI();
+      panDrag = {
+        pointerId: e.pointerId,
+        originX: e.clientX,
+        origViewStart: state.viewStart,
+        trackW: Math.max(1, rect.width),
+        dur,
+      };
+    }
+  });
+
+  els.timelineZoomBar.addEventListener("pointermove", (e) => {
+    if (!panDrag) return;
+    const dxRatio = (e.clientX - panDrag.originX) / panDrag.trackW;
+    state.viewStart = clampViewStart(panDrag.origViewStart + dxRatio * panDrag.dur, panDrag.dur);
+    updateTimelineUI();
+  });
+
+  const endPanDrag = () => {
+    if (!panDrag) return;
+    try {
+      els.timelineZoomBar.releasePointerCapture(panDrag.pointerId);
+    } catch (_) {}
+    panDrag = null;
+  };
+  els.timelineZoomBar.addEventListener("pointerup", endPanDrag);
+  els.timelineZoomBar.addEventListener("pointercancel", endPanDrag);
+
+  if (typeof ResizeObserver !== "undefined") {
+    const ro = new ResizeObserver(() => drawWaveform());
+    ro.observe(els.timelineTrack);
+  }
 
   // ── Numeric Timeline Inputs & Quick Per-Clip Chips ────────────────────────
   els.inputStart.addEventListener("change", () => {
@@ -933,12 +1498,149 @@
     });
   });
 
+  // ── Best Moment Auto-Detection (Audio + Motion) ───────────────────────────
+  function formatMomentReason(reason) {
+    if (reason === "audio_motion") return t("moment_reason_both");
+    if (reason === "audio") return t("moment_reason_audio");
+    return t("moment_reason_motion");
+  }
+
+  function frameAroundPeak(dur, peakTime, len) {
+    const safeLen = Math.min(Math.max(0.25, len), Math.max(0.25, dur));
+    const s = clamp(peakTime - safeLen * 0.4, 0, Math.max(0, dur - safeLen));
+    const e = Math.min(dur, s + safeLen);
+    return { start: round2(s), end: round2(e) };
+  }
+
+  async function applyBestMomentToClips(clips, targetDur, showSummaryToast = true) {
+    if (!clips || !clips.length || state.isDetectingBest) return;
+    state.isDetectingBest = true;
+    els.btnApplyBatch.disabled = true;
+    const labelSpan = els.btnApplyBatch.querySelector("[data-i18n='batch_apply_prefix']");
+    const total = clips.length;
+    let done = 0;
+    let updated = 0;
+
+    const refreshLabel = () => {
+      if (labelSpan) {
+        labelSpan.textContent = `${t("batch_detecting_best")} ${done}/${total}`;
+      }
+    };
+    refreshLabel();
+
+    try {
+      const queue = [...clips];
+      const concurrency = Math.min(3, queue.length);
+
+      const worker = async () => {
+        while (queue.length > 0) {
+          const clip = queue.shift();
+          if (!clip) break;
+          // Verify clip still exists in session
+          if (!state.clips.some((c) => c.id === clip.id)) {
+            done++;
+            refreshLabel();
+            continue;
+          }
+
+          try {
+            let moments = clip.bestMoments;
+            if (!moments || !moments.length) {
+              const res = await apiJson(`/api/media/${clip.id}/best-moments`);
+              moments = Array.isArray(res.moments) ? res.moments : [];
+              clip.bestMoments = moments;
+            }
+
+            if (moments.length > 0) {
+              clip.bestMomentIdx = 0;
+              const dur = Number(clip.meta?.duration || 0);
+              const { start, end } = frameAroundPeak(dur, moments[0].time, targetDur);
+              clip.start = start;
+              clip.end = end;
+              clip.reviewed = false;
+              updateQueueCardTrim(clip);
+              updated++;
+
+              if (state.activeId === clip.id) {
+                updateTimelineUI();
+                seekVideo(clip.start);
+              }
+            }
+          } catch (_) {
+            // Skip individual clip errors cleanly so remaining clips still succeed
+          } finally {
+            done++;
+            refreshLabel();
+          }
+        }
+      };
+
+      await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
+      updateReviewedUI();
+      scheduleSessionSave();
+
+      if (showSummaryToast && updated > 0) {
+        showToast(
+          t("toast_best_batch_done", { n: updated, d: targetDur }),
+          "success",
+          3400
+        );
+      }
+    } catch (err) {
+      showToast(err.message, "error", 4500);
+    } finally {
+      state.isDetectingBest = false;
+      if (labelSpan) labelSpan.textContent = t("batch_apply_prefix");
+      updateGlobalCounters();
+    }
+  }
+
+  async function jumpActiveToBestMoment() {
+    const clip = getActiveClip();
+    if (!clip) return;
+    els.btnClipBestMoment.disabled = true;
+    try {
+      if (!clip.bestMoments || !clip.bestMoments.length) {
+        const res = await apiJson(`/api/media/${clip.id}/best-moments`);
+        clip.bestMoments = Array.isArray(res.moments) ? res.moments : [];
+        clip.bestMomentIdx = -1;
+      }
+      if (!clip.bestMoments.length) return;
+
+      clip.bestMomentIdx = (clip.bestMomentIdx + 1) % clip.bestMoments.length;
+      const moment = clip.bestMoments[clip.bestMomentIdx];
+      const dur = getClipDuration(clip);
+      const len = Math.max(0.25, clip.end - clip.start);
+      const { start, end } = frameAroundPeak(dur, moment.time, len);
+      setClipRange(start, end, start);
+
+      showToast(
+        t("toast_best_single", {
+          idx: clip.bestMomentIdx + 1,
+          total: clip.bestMoments.length,
+          t: Number(moment.time).toFixed(1),
+          reason: formatMomentReason(moment.reason),
+        }),
+        "success",
+        2400
+      );
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      els.btnClipBestMoment.disabled = false;
+    }
+  }
+
+  els.btnClipBestMoment.addEventListener("click", jumpActiveToBestMoment);
+
   // ── Batch Preset Controls ─────────────────────────────────────────────────
   document.querySelectorAll("[data-batch-dur]").forEach((btn) => {
     btn.addEventListener("click", () => {
       els.batchDuration.value = btn.dataset.batchDur;
       document.querySelectorAll("[data-batch-dur]").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
+      scheduleSessionSave();
     });
   });
 
@@ -947,14 +1649,19 @@
     document.querySelectorAll("[data-batch-dur]").forEach((b) => {
       b.classList.toggle("active", b.dataset.batchDur === val);
     });
+    scheduleSessionSave();
   });
 
   els.batchAnchor.addEventListener("change", () => {
     const isCustom = els.batchAnchor.value === "custom";
     els.batchCustomRange.classList.toggle("hidden", !isCustom);
+    scheduleSessionSave();
   });
 
-  els.btnApplyBatch.addEventListener("click", () => {
+  els.batchCustomStart.addEventListener("change", scheduleSessionSave);
+  els.batchCustomEnd.addEventListener("change", scheduleSessionSave);
+
+  els.btnApplyBatch.addEventListener("click", async () => {
     const selected = getSelectedClips();
     if (!selected.length) return;
 
@@ -963,11 +1670,17 @@
     const customStart = parseFloat(els.batchCustomStart.value) || 0;
     const customEnd = parseFloat(els.batchCustomEnd.value) || 5;
 
+    if (anchor === "best") {
+      await applyBestMomentToClips(selected, targetDur, true);
+      return;
+    }
+
     for (const clip of selected) {
       const dur = Number(clip.meta?.duration || 0);
       const { start, end } = computeRangeForRule(dur, anchor, targetDur, customStart, customEnd);
       clip.start = start;
       clip.end = end;
+      clip.reviewed = false;
       updateQueueCardTrim(clip);
     }
 
@@ -976,6 +1689,8 @@
       updateTimelineUI();
       seekVideo(active.start);
     }
+    updateReviewedUI();
+    scheduleSessionSave();
 
     const rangeMap = {
       end: t("toast_range_end", { d: targetDur }),
@@ -993,19 +1708,30 @@
   function syncModeCards() {
     const mode = getExportMode();
     const isLossless = mode === "lossless";
+    const isSmart = mode === "smart";
+    const isPrecise = mode === "precise";
+
     els.modeCardLossless.classList.toggle("active", isLossless);
-    els.modeCardPrecise.classList.toggle("active", !isLossless);
-    els.modeCardPrecise.classList.toggle("precise-active", !isLossless);
+    els.modeCardSmart.classList.toggle("active", isSmart);
+    els.modeCardSmart.classList.toggle("smart-active", isSmart);
+    els.modeCardPrecise.classList.toggle("active", isPrecise);
+    els.modeCardPrecise.classList.toggle("precise-active", isPrecise);
     els.snapKeyframeBox.classList.toggle("hidden", !isLossless);
     updateGlobalCounters();
   }
 
   document.querySelectorAll('input[name="exportMode"]').forEach((radio) => {
-    radio.addEventListener("change", syncModeCards);
+    radio.addEventListener("change", () => {
+      syncModeCards();
+      scheduleSessionSave();
+    });
   });
+
+  els.chkSnapKeyframe.addEventListener("change", scheduleSessionSave);
 
   els.chkSourceSubfolder.addEventListener("change", () => {
     els.customOutputDirWrap.classList.toggle("hidden", els.chkSourceSubfolder.checked);
+    scheduleSessionSave();
   });
 
   els.btnPickOutputDir.addEventListener("click", async () => {
@@ -1016,15 +1742,32 @@
       if (!data.cancelled && data.path) {
         state.outputDir = data.path;
         renderOutputDirDisplay();
+        scheduleSessionSave();
       }
     } catch (err) {
       showToast(err.message, "error");
     }
   });
 
-  els.inputSuffix.addEventListener("input", updateFilenamePreview);
+  els.inputSuffix.addEventListener("input", () => {
+    updateFilenamePreview();
+    scheduleSessionSave();
+  });
+  els.chkOverwrite.addEventListener("change", scheduleSessionSave);
 
   // ── Export Execution & Live Progress Polling ──────────────────────────────
+  function getExportSubtitleForMode(mode) {
+    if (mode === "lossless") return t("modal_export_sub_lossless");
+    if (mode === "smart") return t("modal_export_sub_smart");
+    return t("modal_export_sub_precise");
+  }
+
+  function getExportModeAdverb(mode) {
+    if (mode === "lossless") return t("export_mode_lossless_adv");
+    if (mode === "smart") return t("export_mode_smart_adv");
+    return t("export_mode_precise_adv");
+  }
+
   async function startBatchExport() {
     const selected = getSelectedClips();
     if (!selected.length) {
@@ -1061,6 +1804,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      state.lastExportJobId = job_id;
       openExportModal(mode, selected.length);
       pollExportStatus(job_id);
     } catch (err) {
@@ -1072,13 +1816,15 @@
     state.lastExportJob = null;
     els.exportModal.classList.remove("hidden");
     els.exportModalTitle.textContent = t("modal_export_running");
-    els.exportModalSubtitle.textContent =
-      mode === "lossless" ? t("modal_export_sub_lossless") : t("modal_export_sub_precise");
+    els.exportModalSubtitle.textContent = getExportSubtitleForMode(mode);
     els.exportProgressBar.style.width = "0%";
     els.exportProgressText.textContent = t("export_progress_videos", { done: 0, total });
     els.exportProgressPct.textContent = "0%";
     els.exportSummaryBanner.classList.add("hidden");
     els.exportSummaryBanner.classList.remove("has-errors");
+    els.recycleConfirmBar.classList.add("hidden");
+    els.recycleDoneBanner.classList.add("hidden");
+    els.btnTrashOriginals.classList.add("hidden");
     els.btnOpenOutputFolder.classList.add("hidden");
     els.exportResultsList.innerHTML = "";
     state.lastOutputDir = "";
@@ -1115,8 +1861,7 @@
       total: job.total,
     });
     els.exportProgressPct.textContent = `${pct}%`;
-    els.exportModalSubtitle.textContent =
-      job.mode === "lossless" ? t("modal_export_sub_lossless") : t("modal_export_sub_precise");
+    els.exportModalSubtitle.textContent = getExportSubtitleForMode(job.mode);
 
     const items = Object.values(job.items || {});
     els.exportResultsList.innerHTML = items
@@ -1124,7 +1869,11 @@
         let statusHtml = "";
         if (it.status === "done" && it.result) {
           const r = it.result;
-          statusHtml = `<span class="export-item-status done">✓ ${r.actual_duration.toFixed(1)}s • ${formatBytes(r.output_size)} (${r.elapsed_ms} ms)</span>`;
+          const smartTag =
+            r.mode === "smart" && Number.isFinite(r.smart_copied_pct)
+              ? ` • ${r.smart_copied_pct}% copy`
+              : "";
+          statusHtml = `<span class="export-item-status done">✓ ${r.actual_duration.toFixed(1)}s${smartTag} • ${formatBytes(r.output_size)} (${r.elapsed_ms} ms)</span>`;
         } else if (it.status === "processing") {
           statusHtml = `<span class="export-item-status processing">${escapeHtml(t("export_status_processing"))}</span>`;
         } else if (it.status === "error") {
@@ -1163,10 +1912,7 @@
         els.exportSummaryBanner.textContent = t("export_summary_ok", {
           ok: job.succeeded,
           total: job.total,
-          mode:
-            job.mode === "lossless"
-              ? t("export_mode_lossless_adv")
-              : t("export_mode_precise_adv"),
+          mode: getExportModeAdverb(job.mode),
           sec,
           saved,
           before: formatBytes(job.total_input_bytes),
@@ -1177,6 +1923,24 @@
       if (job.output_dirs && job.output_dirs.length > 0) {
         state.lastOutputDir = job.output_dirs[0];
         els.btnOpenOutputFolder.classList.remove("hidden");
+      }
+
+      // Show safe Recycle Bin button when original disk files were successfully exported
+      if (job.recycled) {
+        els.btnTrashOriginals.classList.add("hidden");
+        els.recycleConfirmBar.classList.add("hidden");
+        els.recycleDoneBanner.classList.remove("hidden");
+        els.recycleDoneBanner.textContent = t("recycle_done_banner", {
+          n: job.recycled_count,
+          size: formatBytes(job.recycled_bytes),
+        });
+      } else if (job.recyclable_count > 0) {
+        els.btnTrashOriginals.classList.remove("hidden");
+        els.btnTrashOriginalsText.textContent = t("btn_trash_originals", {
+          size: formatBytes(job.recyclable_bytes),
+        });
+      } else {
+        els.btnTrashOriginals.classList.add("hidden");
       }
     } else {
       els.exportModalTitle.textContent = t("modal_export_running");
@@ -1216,10 +1980,40 @@
     state.clips.forEach((c) => (c.selected = !allSelected));
     renderQueue();
     updateGlobalCounters();
+    scheduleSessionSave();
   });
 
   els.btnMainExport.addEventListener("click", startBatchExport);
   els.btnTopExport.addEventListener("click", startBatchExport);
+
+  // Reviewed & timeline tool buttons
+  els.btnMarkReviewed.addEventListener("click", () => {
+    const active = getActiveClip();
+    if (!active) return;
+    // If already reviewed, clicking toggles off; if unreviewed, marks reviewed & advances
+    markActiveReviewedAndAdvance(!!active.reviewed);
+  });
+
+  els.btnToggleWaveform.addEventListener("click", () => {
+    state.showWaveform = !state.showWaveform;
+    els.btnToggleWaveform.classList.toggle("active", state.showWaveform);
+    drawWaveform();
+    scheduleSessionSave();
+  });
+
+  els.btnZoomIn.addEventListener("click", () => {
+    const clip = getActiveClip();
+    if (!clip) return;
+    setTimelineZoom(state.zoom * 1.5, els.videoPlayer.currentTime || clip.start, 0.5);
+  });
+  els.btnZoomOut.addEventListener("click", () => {
+    const clip = getActiveClip();
+    if (!clip) return;
+    setTimelineZoom(state.zoom / 1.5, els.videoPlayer.currentTime || clip.start, 0.5);
+  });
+  els.btnZoomReset.addEventListener("click", () => {
+    setTimelineZoom(1);
+  });
 
   // Player events
   els.videoPlayer.addEventListener("click", togglePlayPause);
@@ -1232,6 +2026,10 @@
   });
 
   els.btnPlayPause.addEventListener("click", togglePlayPause);
+  els.btnKfPrev.addEventListener("click", () => jumpKeyframe(-1));
+  els.btnKfNext.addEventListener("click", () => jumpKeyframe(1));
+  els.btnFrameBack.addEventListener("click", () => stepFrame(-1));
+  els.btnFrameFwd.addEventListener("click", () => stepFrame(1));
   els.btnStepBack.addEventListener("click", () => {
     seekVideo((els.videoPlayer.currentTime || 0) - 0.5, true);
   });
@@ -1288,10 +2086,92 @@
   els.btnPrevClip.addEventListener("click", () => navigateClip(-1));
   els.btnNextClip.addEventListener("click", () => navigateClip(1));
 
-  // Modals
-  const closeExportModal = () => els.exportModal.classList.add("hidden");
+  // Modals & Recycle Bin confirmation flow
+  const closeExportModal = () => {
+    els.exportModal.classList.add("hidden");
+    els.recycleConfirmBar.classList.add("hidden");
+  };
   els.btnCloseExportModal.addEventListener("click", closeExportModal);
   els.btnExportModalDone.addEventListener("click", closeExportModal);
+
+  els.btnTrashOriginals.addEventListener("click", () => {
+    const job = state.lastExportJob;
+    if (!job || !job.recyclable_count) return;
+    els.recycleConfirmText.textContent = t("recycle_confirm_prompt", {
+      n: job.recyclable_count,
+      size: formatBytes(job.recyclable_bytes),
+    });
+    els.recycleConfirmBar.classList.remove("hidden");
+  });
+
+  els.btnCancelRecycle.addEventListener("click", () => {
+    els.recycleConfirmBar.classList.add("hidden");
+  });
+
+  els.btnConfirmRecycle.addEventListener("click", async () => {
+    const jobId = state.lastExportJobId;
+    if (!jobId) return;
+    els.btnConfirmRecycle.disabled = true;
+
+    // Release active video stream handle so Windows does not lock the currently loaded original file
+    els.videoPlayer.pause();
+    els.videoPlayer.removeAttribute("src");
+    els.videoPlayer.load();
+
+    try {
+      const res = await apiJson(`/api/export/recycle-originals/${jobId}`, {
+        method: "POST",
+      });
+
+      const removedSet = new Set(res.removed_clip_ids || []);
+      if (removedSet.size > 0) {
+        state.clips = state.clips.filter((c) => !removedSet.has(c.id));
+        if (state.clips.length > 0) {
+          const stillActive = state.clips.some((c) => c.id === state.activeId);
+          selectClip(stillActive ? state.activeId : state.clips[0].id);
+        } else {
+          state.activeId = null;
+          els.editorStage.classList.add("hidden");
+          els.emptyStage.classList.remove("hidden");
+        }
+        renderQueue();
+        updateGlobalCounters();
+        updateFilenamePreview();
+        scheduleSessionSave();
+      } else if (state.activeId) {
+        // Reload player if active clip wasn't removed
+        selectClip(state.activeId);
+      }
+
+      if (state.lastExportJob) {
+        state.lastExportJob.recycled = res.moved_count > 0;
+        state.lastExportJob.recycled_count = res.moved_count;
+        state.lastExportJob.recycled_bytes = res.freed_bytes;
+      }
+
+      els.recycleConfirmBar.classList.add("hidden");
+      els.btnTrashOriginals.classList.add("hidden");
+      els.recycleDoneBanner.classList.remove("hidden");
+      els.recycleDoneBanner.textContent = t("recycle_done_banner", {
+        n: res.moved_count,
+        size: formatBytes(res.freed_bytes),
+      });
+
+      showToast(
+        t("toast_recycled_ok", { n: res.moved_count, size: formatBytes(res.freed_bytes) }),
+        "success",
+        4000
+      );
+      if (res.failed_count > 0) {
+        showToast(t("toast_recycled_partial", { n: res.failed_count }), "error", 4500);
+      }
+    } catch (err) {
+      if (state.activeId) selectClip(state.activeId);
+      showToast(err.message, "error", 4500);
+    } finally {
+      els.btnConfirmRecycle.disabled = false;
+    }
+  });
 
   els.btnOpenOutputFolder.addEventListener("click", async () => {
     if (!state.lastOutputDir) return;
@@ -1333,20 +2213,37 @@
     } else if (e.key === "m" || e.key === "M") {
       e.preventDefault();
       els.btnMute.click();
+    } else if (e.key === "," || e.code === "Comma") {
+      e.preventDefault();
+      stepFrame(-1);
+    } else if (e.key === "." || e.code === "Period") {
+      e.preventDefault();
+      stepFrame(1);
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
-      const step = e.shiftKey ? 0.1 : 0.5;
-      seekVideo((els.videoPlayer.currentTime || 0) - step, true);
+      if (e.ctrlKey || e.metaKey) {
+        jumpKeyframe(-1);
+      } else {
+        const step = e.shiftKey ? 0.1 : 0.5;
+        seekVideo((els.videoPlayer.currentTime || 0) - step, true);
+      }
     } else if (e.key === "ArrowRight") {
       e.preventDefault();
-      const step = e.shiftKey ? 0.1 : 0.5;
-      seekVideo((els.videoPlayer.currentTime || 0) + step, true);
+      if (e.ctrlKey || e.metaKey) {
+        jumpKeyframe(1);
+      } else {
+        const step = e.shiftKey ? 0.1 : 0.5;
+        seekVideo((els.videoPlayer.currentTime || 0) + step, true);
+      }
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       navigateClip(-1);
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       navigateClip(1);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      markActiveReviewedAndAdvance(e.shiftKey);
     } else if (e.key === "Escape") {
       els.shortcutsModal.classList.add("hidden");
     }
