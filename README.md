@@ -26,11 +26,13 @@ cd Video-Trimmer
 
 ### Features
 - **100% Lossless Cutting (`Stream Copy` / `-c copy`)**: Copies original video and all audio tracks bit-for-bit without re-encoding. Resolution, FPS, codec, and bitrate remain untouched, and exporting 15 clips takes ~1–2 seconds.
+- **Smart Cut (Hybrid Frame-Exact Mode)**: Re-encodes *only* the tiny leading fraction between your exact `IN` point and the next keyframe, then bit-for-bit stream-copies the rest of the clip — combining `0.01s` precision with near-instant lossless speed.
+- **Audio Waveform, Timeline Zoom & Frame/I-Frame Stepping**: Crisp audio waveform overlaid on the filmstrip, smooth mouse-wheel zoom up to `20x` with pan bar, exact 1-frame stepping (`,` / `.`), and direct jumping between keyframes (`Ctrl + ← / →`).
 - **Keyframe (I-Frame) Visualization & Snapping**: Shows exact keyframe ticks along the timeline and optionally snaps the start cut to the nearest I-frame to avoid black/frozen lead-in frames.
-- **Frame-Exact Mode (Optional)**: Need strictly `5.00s` regardless of keyframe distance? Switch to visually lossless mode (`H.264 CRF 15` + lossless audio copy).
-- **1-Click Batch Trimming + Individual Fine-Tuning**: Apply one rule to all selected clips (*Last N sec*, *First N sec*, *Middle*, or *Custom range*), then quickly step through clips (`↑`/`↓`) and slide the entire trim window across the filmstrip timeline with instant looped playback.
+- **Frame-Exact Mode (Optional)**: Need strictly `5.00s` on any codec? Switch to visually lossless mode (`H.264 CRF 15` + lossless audio copy).
+- **1-Click Batch Trimming + Fast Review Flow**: Apply one rule to all selected clips (*Last N sec*, *First N sec*, *Middle*, or *Custom range*), step through clips rapidly with `Enter` (*Approve & Next unreviewed*), and auto-save/restore your session automatically across restarts.
 - **Zero-Copy File & Folder Import**: Select dozens of large 4K/60fps videos straight from disk without copying them into browser memory (standard Drag & Drop is also supported).
-- **Safe Non-Destructive Export**: Originals are never overwritten — trimmed clips are saved into a `Trimmed` (`Przyciete`) subfolder or any custom output folder.
+- **Safe Non-Destructive Export + Optional Recycle Bin Cleanup**: Originals are never overwritten — trimmed clips are saved into a `Trimmed` (`Przyciete`) subfolder or any custom output folder. After a successful export, an explicit confirmation button lets you safely move processed originals to the Windows Recycle Bin to reclaim disk space.
 
 ### Keyboard Shortcuts
 | Key | Action |
@@ -38,10 +40,14 @@ cd Video-Trimmer
 | `Space` | Play / Pause |
 | `I` | Set trim start (IN) at playhead |
 | `O` | Set trim end (OUT) at playhead |
+| `,` / `.` | Step backward / forward by 1 exact frame |
 | `←` / `→` | Seek 0.5s (`+Shift`: 0.1s) |
+| `Ctrl + ←` / `→` | Jump to previous / next keyframe (I-frame) |
 | `↑` / `↓` | Previous / Next clip in queue |
+| `Enter` | Mark clip reviewed & jump to next unreviewed (`+Shift`: toggle) |
 | `L` | Toggle selection loop playback |
 | `M` | Mute / Unmute audio |
+| `Mouse Wheel` | Zoom timeline (`+Shift`: pan zoomed timeline) |
 
 ### FAQ (English)
 
@@ -94,9 +100,12 @@ By default, next to your source videos in a subfolder named `Trimmed` (EN) or `P
 
 ### Najważniejsze funkcje
 - **100% bezstratne cięcie (`Stream Copy` / `-c copy`)**: Kopiuje oryginalne strumienie wideo oraz wszystkie ścieżki audio bit w bit, bez rekompresji. Rozdzielczość, FPS, kodek i bitrate zostają identyczne, a eksport 15 klipów trwa ok. 1–2 sekundy.
+- **Smart Cut (Hybrydowe cięcie co do klatki)**: Rekompresuje *wyłącznie* krótki początkowy fragment od punktu `IN` do najbliższej klatki kluczowej, a resztę pliku kopiuje bit w bit (`-c copy`) — łącząc dokładność `0.01s` z prędkością i jakością bliską Stream Copy.
+- **Audio Waveform, Zoom osi czasu i skoki po klatkach**: Czytelny wykres fali dźwiękowej na osi czasu, płynne przybliżanie kółkiem myszy do `20x` z paskiem przewijania, skok o dokładnie 1 klatkę (`,` / `.`) oraz przeskakiwanie między klatkami kluczowymi (`Ctrl + ← / →`).
 - **Podgląd i wyrównanie do klatek kluczowych (I-frame)**: Złote znaczniki na osi czasu pokazują klatki kluczowe, a wyrównanie punktu startu zapobiega czarnym/zamrożonym pierwszym klatkom.
-- **Tryb „Co do klatki” (opcjonalny)**: Gdy potrzebujesz idealnie `5.00s` niezależnie od klatek kluczowych — dostępny jest tryb wizualnie bezstratny (`H.264 CRF 15` + bezstratne audio).
-- **Masowe przycinanie 1 kliknięciem + szybka korekta**: Ustawiasz jedną regułę dla wszystkich filmów (*Ostatnie N s*, *Pierwsze N s*, *Środek* lub *Własny zakres*), a potem możesz jednym ruchem przesuwać całe 5-sekundowe okno po osi czasu z zapętlonym podglądem.
+- **Tryb „Co do klatki” (opcjonalny)**: Gdy potrzebujesz idealnie `5.00s` na dowolnym kodeku — dostępny jest tryb wizualnie bezstratny (`H.264 CRF 15` + bezstratne audio).
+- **Masowe przycinanie 1 kliknięciem + szybkie przeglądanie i auto-zapis sesji**: Ustawiasz jedną regułę dla wszystkich filmów (*Ostatnie N s*, *Pierwsze N s*, *Środek* lub *Własny zakres*), zatwierdzasz sprawdzone klipy klawiszem `Enter` (automatyczny skok do kolejnego niesprawdzonego), a cała kolejka i ustawienia zapisują się automatycznie między uruchomieniami.
+- **Bezpieczny eksport + opcjonalne przenoszenie oryginałów do Kosza**: Oryginały nigdy nie są nadpisywane — po udanym eksporcie ręczny przycisk z potwierdzeniem i licznikiem GB pozwala bezpiecznie przenieść przycięte oryginały do Kosza Windows.
 - **Natywny wybór plików/folderów bez kopiowania**: Błyskawicznie wczytuje dziesiątki dużych plików 4K prosto z dysku (działa też Drag & Drop).
 - **Przełącznik języka `PL | EN`** w prawym górnym rogu.
 
@@ -106,10 +115,14 @@ By default, next to your source videos in a subfolder named `Trimmed` (EN) or `P
 | `Spacja` | Odtwórz / Pauza |
 | `I` | Ustaw początek wycinka (IN) |
 | `O` | Ustaw koniec wycinka (OUT) |
+| `,` / `.` | Przesuń kursor o dokładnie 1 klatkę |
 | `←` / `→` | Przesuń kursor o 0.5s (`+Shift`: 0.1s) |
+| `Ctrl + ←` / `→` | Poprzednia / Następna klatka kluczowa (I-frame) |
 | `↑` / `↓` | Poprzedni / Następny film z listy |
+| `Enter` | Zatwierdź klip jako sprawdzony i przejdź do następnego (`+Shift`: przełącz) |
 | `L` | Włącz / Wyłącz pętlę wycinka |
 | `M` | Wycisz / Włącz dźwięk |
+| `Kółko myszy` | Przybliżenie osi czasu (`+Shift`: przewijanie) |
 
 ### FAQ (Polski)
 
@@ -147,6 +160,15 @@ Bezstratne cięcie (`Stream Copy`) nie rekompresuje wideo, dlatego musi zaczyna�
 
 Domyślnie obok oryginalnych nagrań w podfolderze `Przyciete` (lub `Trimmed` w wersji EN). Możesz też odznaczyć tę opcję w prawym panelu i wybrać dowolny własny folder docelowy. Po zakończeniu eksportu kliknij **Otwórz folder z wynikami**, aby od razu otworzyć go w Eksploratorze Windows.
 </details>
+
+---
+
+## 🧩 Related Projects / Ekosystem AI Video Studio
+
+**EventCut Studio (`Video-Trimmer`)** works standalone and also powers the local AI video editing ecosystem:
+- ✂️ **[EventCut Studio (`Video-Trimmer`)](https://github.com/PHPSmoker/Video-Trimmer)** *(this repo)* — lossless & frame-exact batch video trimmer.
+- 🎞️ **[Video Montage Studio (`Video-Montage`)](https://github.com/PHPSmoker/Video-Montage)** — batch video compilation builder with 30+ `xfade` transitions, **Impact FX & SFX**, and continuous background music.
+- 🤖 **[AI Video Director MCP (`Video-Director-MCP`)](https://github.com/PHPSmoker/Video-Director-MCP)** — local MCP server & AI Director skill that connects both apps so an AI agent can watch storyboards, detect highlights, trim clips, and render finished edits automatically.
 
 ---
 
